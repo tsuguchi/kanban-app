@@ -3,10 +3,11 @@ node_modules/
 dist/
 .wrangler/
 
-# 環境変数（Supabase のキーなど）
+# 環境変数・Firebase のローカル設定
 .env
 .env.*
 !.env.example
+.firebase/
 
 # ログ・OS・エディタ
 *.log
