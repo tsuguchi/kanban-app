@@ -18,14 +18,24 @@
 必要なもの：
 
 - Node.js 24 以上
-- Java（JDK 21 以上）。Firebase Emulator を動かすのに使う
+- Java（JDK 21 以上。Oracle JDK 25 で動作確認済み）。Firebase Emulator を動かすのに使う
 
 ```sh
 npm install
-cp .env.example .env.local   # 値を入れる。Emulator だけで試すなら VITE_USE_EMULATOR=true のままでよい
+cp .env.example .env.local   # そのままで Emulator に接続する設定になっている
 npm run emulators            # 別のターミナルで起動しておく。管理画面は http://127.0.0.1:4000
 npm run dev
 ```
+
+Emulator は Firebase へのログインが不要な `demo-kanban` プロジェクトとして動くので、本番のデータには触れない。
+
+Security Rules のテストは、Emulator を起動した状態で実行する。
+
+```sh
+npm run test:rules
+```
+
+`npm run test:rules:ci` は Emulator の起動から停止までを自動で行う。ただし Windows では、終了後も Firestore Emulator（java.exe）が残ってポート 8080 を使い続けることがあるため、CI（Linux）向けとする。
 
 | コマンド | 内容 |
 |---|---|
@@ -33,6 +43,7 @@ npm run dev
 | `npm run build` | 型チェックと本番用ビルド（`dist/`） |
 | `npm run lint` | oxlint で静的解析する |
 | `npm run emulators` | Firebase Emulator（Auth、Firestore）を起動する |
+| `npm run test:rules` | Security Rules のテストを実行する（Emulator の起動が必要） |
 | `npm run deploy:rules` | Firestore の Security Rules とインデックスを本番に反映する |
 | `npm run deploy` | ビルドして Cloudflare Workers に手動でデプロイする（通常は下記の自動デプロイを使う） |
 
@@ -50,7 +61,7 @@ npm run dev
    - Google
    - GitHub：GitHub の [Developer settings](https://github.com/settings/developers) で OAuth App を作り、Firebase の画面に表示されるコールバック URL を登録する。発行されたクライアント ID とシークレットを Firebase に入力する
 4. 「ユーザー アカウントのリンク」の設定が「同じメールアドレスを使用するアカウントをリンクする」になっていることを確認する（REQUIREMENTS.md F-05）
-5. 「プロジェクトの設定」→「マイアプリ」でウェブアプリを追加し、表示された設定値を `.env.local` に入れる
+5. 「プロジェクトの設定」→「マイアプリ」でウェブアプリを追加し、表示された設定値を控えておく（Cloudflare のビルド設定に登録する。本番に接続して試すときは `.env.local` にも入れる）
 6. CLI でログインし、このリポジトリとプロジェクトを結び付けて、ルールを反映する
 
    ```sh

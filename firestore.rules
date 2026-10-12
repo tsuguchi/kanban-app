@@ -1,11 +1,271 @@
 rules_version = '2';
 
 // 方針は DATA_MODEL.md §3 を参照。
-// ルールを実装するまでは、すべての読み書きを拒否しておく。
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+
+    // ---- 共通 ----
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function boardPath(boardId) {
+      return /databases/$(database)/documents/boards/$(boardId);
+    }
+
+    function myMemberPath(boardId) {
+      return /databases/$(database)/documents/boards/$(boardId)/members/$(uid());
+    }
+
+    function isMember(boardId) {
+      return signedIn() && exists(myMemberPath(boardId));
+    }
+
+    function isOwner(boardId) {
+      return isMember(boardId) && get(myMemberPath(boardId)).data.role == 'owner';
+    }
+
+    // ボードの削除は、ボード本体を先に消してから配下を片付ける（DATA_MODEL.md §4）
+    function boardDeleted(boardId) {
+      return !exists(boardPath(boardId));
+    }
+
+    // 招待リンクの有効期限。発行日時（サーバー時刻）からの長さで判定する
+    function inviteLifetime() {
+      return duration.value(7, 'd');
+    }
+
+    function isNonEmptyString(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    // archived と archivedAt の組み合わせが正しいか
+    function validArchiveState(data) {
+      return data.archived is bool
+        && ((data.archived == false && data.archivedAt == null)
+          || (data.archived == true && data.archivedAt is timestamp));
+    }
+
+    // 完全削除してよいカードか。カード自身か所属する列がアーカイブ済みか、ボードごと削除中であること。
+    // 途中で失敗した削除をやり直せるよう、カードや列がすでに無い場合も許可する
+    function cardPurgeable(boardId, cardId) {
+      let cardPath = /databases/$(database)/documents/boards/$(boardId)/cards/$(cardId);
+      return !exists(cardPath)
+        || boardDeleted(boardId)
+        || get(cardPath).data.archived == true
+        || !exists(/databases/$(database)/documents/boards/$(boardId)/columns/$(get(cardPath).data.columnId))
+        || get(/databases/$(database)/documents/boards/$(boardId)/columns/$(get(cardPath).data.columnId)).data.archived == true;
+    }
+
+    // ---- users ----
+
+    match /users/{userId} {
+      function validUser(data) {
+        return data.keys().hasOnly(['displayName', 'photoURL', 'createdAt'])
+          && isNonEmptyString(data.displayName, 50)
+          && (data.photoURL == null || data.photoURL is string)
+          && data.createdAt is timestamp;
+      }
+
+      allow read: if signedIn();
+      allow create: if signedIn() && uid() == userId
+        && validUser(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      allow update: if signedIn() && uid() == userId
+        && validUser(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    // ---- boards ----
+
+    match /boards/{boardId} {
+      function validLabels(labels) {
+        return labels is list && labels.size() <= 50;
+      }
+
+      allow read: if isMember(boardId);
+
+      // ボードの作成と、作成者自身をオーナーとして追加する処理は、同じバッチで行う
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['name', 'ownerId', 'labels', 'createdAt', 'updatedAt'])
+        && isNonEmptyString(request.resource.data.name, 100)
+        && request.resource.data.ownerId == uid()
+        && validLabels(request.resource.data.labels)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && getAfter(myMemberPath(boardId)).data.role == 'owner';
+
+      // メンバーはラベルを編集できる。ボード名の変更はオーナーのみ
+      allow update: if isMember(boardId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'labels', 'updatedAt'])
+        && isNonEmptyString(request.resource.data.name, 100)
+        && validLabels(request.resource.data.labels)
+        && request.resource.data.updatedAt == request.time
+        && (request.resource.data.name == resource.data.name || isOwner(boardId));
+
+      allow delete: if isOwner(boardId);
+
+      // ---- members ----
+
+      match /members/{memberUid} {
+        allow read: if isMember(boardId);
+
+        allow create: if signedIn()
+          && memberUid == uid()
+          && request.resource.data.keys().hasOnly(['uid', 'role', 'inviteId', 'joinedAt'])
+          && request.resource.data.uid == uid()
+          && request.resource.data.joinedAt == request.time
+          && (
+            // ボードの作成者が、ボードと同じバッチで自分をオーナーとして追加する
+            (request.resource.data.role == 'owner'
+              && request.resource.data.inviteId == null
+              && !exists(boardPath(boardId))
+              && getAfter(boardPath(boardId)).data.ownerId == uid())
+            // 有効な招待リンクで、自分をメンバーとして追加する
+            || (request.resource.data.role == 'member'
+              && request.resource.data.inviteId is string
+              && exists(/databases/$(database)/documents/boards/$(boardId)/invites/$(request.resource.data.inviteId))
+              && get(/databases/$(database)/documents/boards/$(boardId)/invites/$(request.resource.data.inviteId)).data.revoked == false
+              && get(/databases/$(database)/documents/boards/$(boardId)/invites/$(request.resource.data.inviteId)).data.createdAt + inviteLifetime() > request.time)
+          );
+
+        allow update: if false;
+
+        allow delete: if signedIn() && (
+          // オーナーが他のメンバーを外す
+          (memberUid != uid() && isOwner(boardId))
+          // メンバーが自分でボードを抜ける
+          || (memberUid == uid() && resource.data.role == 'member')
+          // ボードの削除の最後に、オーナーが自分のメンバー情報を消す
+          || (memberUid == uid() && resource.data.role == 'owner' && !existsAfter(boardPath(boardId)))
+        );
+      }
+
+      // ---- invites ----
+
+      match /invites/{inviteId} {
+        // リンクを知っている人は、参加前でもボード名を確認できる。一覧の取得はオーナーのみ
+        allow get: if signedIn();
+        allow list: if isOwner(boardId);
+
+        allow create: if isOwner(boardId)
+          && request.resource.data.keys().hasOnly(['boardName', 'createdBy', 'createdAt', 'revoked'])
+          && request.resource.data.boardName == get(boardPath(boardId)).data.name
+          && request.resource.data.createdBy == uid()
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.revoked == false;
+
+        // 無効化のみ。一度無効にしたリンクは元に戻さない
+        allow update: if isOwner(boardId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revoked'])
+          && request.resource.data.revoked == true;
+
+        allow delete: if isOwner(boardId) && boardDeleted(boardId);
+      }
+
+      // ---- columns ----
+
+      match /columns/{columnId} {
+        function validColumn(data) {
+          return data.keys().hasOnly(['name', 'order', 'archived', 'archivedAt'])
+            && isNonEmptyString(data.name, 100)
+            && isNonEmptyString(data.order, 200)
+            && validArchiveState(data);
+        }
+
+        allow read: if isMember(boardId);
+        allow create: if isMember(boardId)
+          && validColumn(request.resource.data)
+          && request.resource.data.archived == false;
+        allow update: if isMember(boardId)
+          && validColumn(request.resource.data);
+        allow delete: if isOwner(boardId)
+          && (resource.data.archived == true || boardDeleted(boardId));
+      }
+
+      // ---- cards ----
+
+      match /cards/{cardId} {
+        function validCard(data) {
+          return data.keys().hasOnly([
+              'columnId', 'order', 'title', 'description', 'dueDate', 'assigneeIds', 'labelIds',
+              'checklist', 'commentCount', 'archived', 'archivedAt',
+              'createdBy', 'createdAt', 'updatedBy', 'updatedAt'])
+            && isNonEmptyString(data.columnId, 100)
+            && isNonEmptyString(data.order, 200)
+            && isNonEmptyString(data.title, 200)
+            && data.description is string && data.description.size() <= 10000
+            && (data.dueDate == null || (data.dueDate is string && data.dueDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+            && data.assigneeIds is list && data.assigneeIds.size() <= 50
+            && data.labelIds is list && data.labelIds.size() <= 50
+            && data.checklist is list && data.checklist.size() <= 100
+            && data.commentCount is int && data.commentCount >= 0
+            && validArchiveState(data)
+            && data.updatedBy == uid()
+            && data.updatedAt == request.time;
+        }
+
+        allow read: if isMember(boardId);
+        allow create: if isMember(boardId)
+          && validCard(request.resource.data)
+          && request.resource.data.archived == false
+          && request.resource.data.commentCount == 0
+          && request.resource.data.createdBy == uid()
+          && request.resource.data.createdAt == request.time;
+        allow update: if isMember(boardId)
+          && validCard(request.resource.data)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(boardId) && cardPurgeable(boardId, cardId);
+
+        // ---- comments ----
+
+        match /comments/{commentId} {
+          allow read: if isMember(boardId);
+          allow create: if isMember(boardId)
+            && request.resource.data.keys().hasOnly(['authorId', 'body', 'createdAt', 'updatedAt'])
+            && request.resource.data.authorId == uid()
+            && isNonEmptyString(request.resource.data.body, 5000)
+            && request.resource.data.createdAt == request.time
+            && request.resource.data.updatedAt == null;
+          allow update: if isMember(boardId)
+            && resource.data.authorId == uid()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['body', 'updatedAt'])
+            && isNonEmptyString(request.resource.data.body, 5000)
+            && request.resource.data.updatedAt == request.time;
+          allow delete: if (isMember(boardId) && resource.data.authorId == uid())
+            || (isOwner(boardId) && cardPurgeable(boardId, cardId));
+        }
+
+        // ---- history ----
+
+        match /history/{historyId} {
+          allow read: if isMember(boardId);
+          // 追加のみ。操作者は本人、日時はサーバー時刻
+          allow create: if isMember(boardId)
+            && request.resource.data.keys().hasOnly(['actorId', 'type', 'from', 'to', 'createdAt'])
+            && request.resource.data.actorId == uid()
+            && request.resource.data.type in [
+              'created', 'archived', 'restored', 'moved',
+              'title_changed', 'due_changed', 'assignees_changed', 'labels_changed']
+            && (request.resource.data['from'] == null || request.resource.data['from'] is map)
+            && (request.resource.data.to == null || request.resource.data.to is map)
+            && request.resource.data.createdAt == request.time;
+          allow update: if false;
+          allow delete: if isOwner(boardId) && cardPurgeable(boardId, cardId);
+        }
+      }
+    }
+
+    // ボード一覧（S-02）用のコレクショングループクエリ。自分のメンバー情報だけ読める
+    match /{path=**}/members/{memberUid} {
+      allow read: if signedIn() && resource.data.uid == uid();
     }
   }
 }
