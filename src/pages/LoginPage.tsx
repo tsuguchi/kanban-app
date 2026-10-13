@@ -82,7 +82,7 @@ export function LoginPage() {
 
   return (
     <main className="login-page">
-      <h1>カンバン</h1>
+      <h1>タスク管理ボード</h1>
       <p>チームのタスクをボードで共有・管理します。</p>
       <div className="login-buttons">
         {(Object.keys(PROVIDERS) as ProviderId[]).map((providerId) => (

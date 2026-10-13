@@ -11,7 +11,7 @@ export function AppLayout() {
   return (
     <>
       <header className="app-header">
-        <Link to="/" className="app-title">カンバン</Link>
+        <Link to="/" className="app-title">タスク管理ボード</Link>
         <nav className="app-header-menu">
           <Link to="/settings" className="app-header-user">
             {profile?.photoURL && <img src={profile.photoURL} alt="" className="avatar" />}

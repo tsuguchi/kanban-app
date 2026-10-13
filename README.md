@@ -1,6 +1,6 @@
 # kanban-app
 
-小規模チーム向けのカンバン型タスク管理アプリ。
+「タスク管理ボード」は、小規模チーム向けのカンバン型タスク管理アプリ。
 
 - 本番：https://kanban-app.tsuguchi.workers.dev
 - 要件：[REQUIREMENTS.md](REQUIREMENTS.md)
