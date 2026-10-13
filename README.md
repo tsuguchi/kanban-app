@@ -37,6 +37,8 @@ npm test
 
 ログイン画面を試すときは、Emulator の偽のログイン画面が開く。「Add new account」で好きな名前とメールアドレスのユーザーを作ってログインできる。
 
+アプリは Edge や Chrome などの通常のブラウザで、`http://localhost:5173` として開くこと。VS Code の内蔵ブラウザでは、ログインのポップアップが元の画面とつながらない別のタブとして開くため、「Auth Emulator Internal Error: No matching frame」で失敗する。
+
 `npm run test:ci` は Emulator の起動から停止までを自動で行う。ただし Windows では、終了後も Firestore Emulator（java.exe）が残ってポート 8080 を使い続けることがあるため、CI（Linux）向けとする。
 
 | コマンド | 内容 |

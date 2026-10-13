@@ -14,6 +14,9 @@ export const db = getFirestore(app)
 
 // 開発時は Firebase Emulator に接続し、本番のデータに触れないようにする
 if (import.meta.env.VITE_USE_EMULATOR === 'true') {
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  // Auth Emulator のホスト名は、アプリを開いているホスト名にそろえる。
+  // localhost と 127.0.0.1 は別のサイトとして扱われ、ログインのポップアップが使う Emulator の iframe が
+  // サードパーティ扱いでブロック・隔離されると「No matching frame」で失敗するため
+  connectAuthEmulator(auth, `http://${window.location.hostname}:9099`, { disableWarnings: true })
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
 }
