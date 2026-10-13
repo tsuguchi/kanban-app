@@ -4,6 +4,7 @@ import { RequireAuth } from './auth/RequireAuth'
 import { AppLayout } from './components/AppLayout'
 import { AccountSettingsPage } from './pages/AccountSettingsPage'
 import { BoardListPage } from './pages/BoardListPage'
+import { BoardRoute } from './pages/board/BoardPage'
 import { LoginPage } from './pages/LoginPage'
 
 // 未実装の画面の仮置き
@@ -28,7 +29,7 @@ const router = createBrowserRouter([
           { path: '/', element: <BoardListPage /> },
           {
             path: '/b/:boardId',
-            element: <Placeholder title="ボード" />,
+            element: <BoardRoute />,
             children: [{ path: 'c/:cardId', element: <Placeholder title="カード詳細" /> }],
           },
           { path: '/b/:boardId/settings', element: <Placeholder title="ボード設定" /> },
