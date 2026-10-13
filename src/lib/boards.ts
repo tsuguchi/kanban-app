@@ -1,3 +1,4 @@
+import { FirebaseError } from 'firebase/app'
 import { generateNKeysBetween } from 'fractional-indexing'
 import {
   collection,
@@ -55,12 +56,15 @@ export async function createBoard(db: Firestore, uid: string, name: string): Pro
   return boardRef.id
 }
 
-// 自分が参加しているボードの一覧を購読する（F-11）。ボード名の昇順で返す
+// 自分が参加しているボードの一覧を購読する（F-11）。ボード名の昇順で返す。
+// ボード本体が消えてメンバー情報だけが残っているボード（削除が途中で止まったもの）のうち、
+// 自分がオーナーのものは onOrphaned で知らせる。呼び出し側で片付けの続きを行う（DATA_MODEL.md §4）
 export function subscribeMyBoards(
   db: Firestore,
   uid: string,
   onChange: (boards: BoardSummary[]) => void,
   onError: (error: Error) => void,
+  onOrphaned?: (boardIds: string[]) => void,
 ): () => void {
   // 参加状況が立て続けに変わったとき、古い読み込み結果で上書きしないための番号
   let latestRequest = 0
@@ -87,21 +91,32 @@ export function subscribeMyBoards(
 
       Promise.all(
         memberships.map(async ({ boardRef, role }) => {
-          const board = await getDoc(boardRef)
-          // ボードの削除が途中で止まっていると、メンバー情報だけが残っている（DATA_MODEL.md §4）
-          if (!board.exists()) return null
-          return { id: board.id, name: board.data().name as string, role }
+          try {
+            const board = await getDoc(boardRef)
+            if (!board.exists()) return { id: boardRef.id, role, orphaned: true as const }
+            return { id: board.id, name: board.data().name as string, role, orphaned: false as const }
+          } catch (error) {
+            // 読み込み中にメンバーから外された場合は、そのボードは表示しない
+            if (error instanceof FirebaseError && error.code === 'permission-denied') return null
+            throw error
+          }
         }),
       )
-        .then((boards) => {
+        .then((results) => {
           if (request !== latestRequest) return
-          onChange(
-            boards
-              .filter((board) => board !== null)
-              .sort((a, b) => a.name.localeCompare(b.name, 'ja')),
-          )
+          const boards: BoardSummary[] = []
+          const orphanedIds: string[] = []
+          for (const result of results) {
+            if (result === null) continue
+            if (!result.orphaned) boards.push({ id: result.id, name: result.name, role: result.role })
+            else if (result.role === 'owner') orphanedIds.push(result.id)
+          }
+          onChange(boards.sort((a, b) => a.name.localeCompare(b.name, 'ja')))
+          if (orphanedIds.length > 0) onOrphaned?.(orphanedIds)
         })
-        .catch(onError)
+        .catch((error) => {
+          if (request === latestRequest) onError(error)
+        })
     },
     onError,
   )

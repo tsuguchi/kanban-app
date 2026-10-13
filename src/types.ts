@@ -31,6 +31,13 @@ export interface BoardMember extends UserProfile {
   role: Role
 }
 
+export interface Invite {
+  id: string
+  boardName: string
+  createdAt: Date
+  revoked: boolean
+}
+
 export interface Column {
   id: string
   name: string

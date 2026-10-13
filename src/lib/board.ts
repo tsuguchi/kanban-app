@@ -82,7 +82,7 @@ export function subscribeCards(
   )
 }
 
-// メンバーと、その表示名・アイコンを購読する
+// メンバーと、その表示名・アイコンを購読する。オーナーが先頭で、あとは表示名の順
 export function subscribeMembers(
   db: Firestore,
   boardId: string,
@@ -105,7 +105,10 @@ export function subscribeMembers(
         }
       }))
         .then((members) => {
-          if (request === latestRequest) onChange(members)
+          if (request !== latestRequest) return
+          // オーナーを先頭に、あとは表示名の順に並べる
+          onChange(members.sort((a, b) =>
+            a.role !== b.role ? (a.role === 'owner' ? -1 : 1) : a.displayName.localeCompare(b.displayName, 'ja')))
         })
         .catch(onError)
     },

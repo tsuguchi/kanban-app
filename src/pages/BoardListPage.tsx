@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
 import { BOARD_NAME_MAX_LENGTH, createBoard, subscribeMyBoards } from '../lib/boards'
+import { purgeBoardContents } from '../lib/boardSettings'
 import { db } from '../lib/firebase'
 import type { BoardSummary } from '../types'
 
@@ -13,13 +14,31 @@ export function BoardListPage() {
   const [newBoardName, setNewBoardName] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState(false)
+  // 片付けを始めたボード。同じボードを二重に片付けないようにする
+  const purgingBoardIds = useRef(new Set<string>())
 
   useEffect(() => {
     if (!user) return
-    return subscribeMyBoards(db, user.uid, setBoards, (error) => {
-      console.error(error)
-      setLoadError(true)
-    })
+    return subscribeMyBoards(
+      db,
+      user.uid,
+      setBoards,
+      (error) => {
+        console.error(error)
+        setLoadError(true)
+      },
+      // 削除が途中で止まったボードの片付けを、裏で再開する
+      (boardIds) => {
+        for (const boardId of boardIds) {
+          if (purgingBoardIds.current.has(boardId)) continue
+          purgingBoardIds.current.add(boardId)
+          purgeBoardContents(db, boardId, user.uid).catch((error) => {
+            console.error('削除が途中で止まったボードを片付けられませんでした', error)
+            purgingBoardIds.current.delete(boardId)
+          })
+        }
+      },
+    )
   }, [user])
 
   async function handleCreate(event: FormEvent) {

@@ -6,7 +6,9 @@ import { AccountSettingsPage } from './pages/AccountSettingsPage'
 import { BoardListPage } from './pages/BoardListPage'
 import { BoardRoute } from './pages/board/BoardPage'
 import { CardDetailRoute } from './pages/board/card/CardDetailModal'
+import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
+import { BoardSettingsRoute } from './pages/settings/BoardSettingsPage'
 
 // 未実装の画面の仮置き
 function Placeholder({ title }: { title: string }) {
@@ -33,8 +35,8 @@ const router = createBrowserRouter([
             element: <BoardRoute />,
             children: [{ path: 'c/:cardId', element: <CardDetailRoute /> }],
           },
-          { path: '/b/:boardId/settings', element: <Placeholder title="ボード設定" /> },
-          { path: '/invite/:boardId/:inviteId', element: <Placeholder title="招待への参加" /> },
+          { path: '/b/:boardId/settings', element: <BoardSettingsRoute /> },
+          { path: '/invite/:boardId/:inviteId', element: <InvitePage /> },
           { path: '/settings', element: <AccountSettingsPage /> },
         ],
       },
