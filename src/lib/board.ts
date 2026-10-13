@@ -44,8 +44,14 @@ export function subscribeColumns(
     collection(db, 'boards', boardId, 'columns'),
     (snapshot) => {
       onChange(snapshot.docs.map((columnDoc) => {
-        const data = columnDoc.data()
-        return { id: columnDoc.id, name: data.name, order: data.order, archived: data.archived }
+        const data = columnDoc.data({ serverTimestamps: 'estimate' })
+        return {
+          id: columnDoc.id,
+          name: data.name,
+          order: data.order,
+          archived: data.archived,
+          archivedAt: data.archivedAt?.toDate() ?? null,
+        }
       }))
     },
     onError,
@@ -62,7 +68,7 @@ export function subscribeCards(
     collection(db, 'boards', boardId, 'cards'),
     (snapshot) => {
       onChange(snapshot.docs.map((cardDoc) => {
-        const data = cardDoc.data()
+        const data = cardDoc.data({ serverTimestamps: 'estimate' })
         return {
           id: cardDoc.id,
           columnId: data.columnId,
@@ -75,6 +81,7 @@ export function subscribeCards(
           checklist: data.checklist,
           commentCount: data.commentCount,
           archived: data.archived,
+          archivedAt: data.archivedAt?.toDate() ?? null,
         }
       }))
     },

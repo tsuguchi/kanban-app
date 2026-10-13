@@ -5,17 +5,16 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
   updateDoc,
-  type DocumentReference,
   type Firestore,
 } from 'firebase/firestore'
 import type { Invite, Label, Role } from '../types'
+import { deleteAll, purgeCardDoc, subcollectionRefs } from './purge'
 
 // ボード設定（S-06）と招待への参加（S-07）のデータ操作
 
@@ -133,17 +132,6 @@ export async function removeMember(db: Firestore, boardId: string, memberUid: st
 
 // ---- ボードの削除 ----
 
-// Security Rules は削除 1 件ごとに他のドキュメントを数回参照するので、バッチにまとめず少しずつ並列に消す
-async function deleteAll(refs: DocumentReference[], concurrency = 10): Promise<void> {
-  for (let i = 0; i < refs.length; i += concurrency) {
-    await Promise.all(refs.slice(i, i + concurrency).map((ref) => deleteDoc(ref)))
-  }
-}
-
-async function subcollectionRefs(parent: DocumentReference, name: string): Promise<DocumentReference[]> {
-  return (await getDocs(collection(parent, name))).docs.map((d) => d.ref)
-}
-
 // ボード本体が消えたあとに、配下のデータを片付ける（DATA_MODEL.md §4）。
 // 途中で失敗しても、もう一度呼べば続きから消せる
 export async function purgeBoardContents(db: Firestore, boardId: string, ownerUid: string): Promise<void> {
@@ -151,14 +139,9 @@ export async function purgeBoardContents(db: Firestore, boardId: string, ownerUi
 
   await deleteAll(await subcollectionRefs(board, 'invites'))
 
-  const cards = await subcollectionRefs(board, 'cards')
-  for (const card of cards) {
-    await deleteAll([
-      ...await subcollectionRefs(card, 'comments'),
-      ...await subcollectionRefs(card, 'history'),
-    ])
+  for (const card of await subcollectionRefs(board, 'cards')) {
+    await purgeCardDoc(card)
   }
-  await deleteAll(cards)
   await deleteAll(await subcollectionRefs(board, 'columns'))
 
   // オーナー自身のメンバー情報は最後に消す。これが残っている間は、続きを消す権限がある

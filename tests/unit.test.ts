@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import { describeHistory } from '../src/lib/card'
 import { formatDateTime, formatDueDate, isOverdue, todayString } from '../src/lib/dates'
+import { EMPTY_FILTER, endOfWeek, isFilterActive, matchesCardFilter, UNASSIGNED } from '../src/lib/filter'
 import { compareByOrder, orderAt } from '../src/lib/order'
+import type { Card } from '../src/types'
 
 // Emulator を使わない単体テスト
 
@@ -85,5 +87,63 @@ describe('describeHistory', () => {
     expect(describeHistory({ type: 'assignees_changed', from: { names: [] }, to: { names: ['Alice', 'Bob'] } }))
       .toBe('担当者をなしから「Alice、Bob」に変更しました')
     expect(describeHistory({ type: 'created', from: null, to: null })).toBe('カードを作成しました')
+  })
+})
+
+describe('絞り込み', () => {
+  const TODAY = '2026-10-13' // 火曜日
+
+  function card(fields: Partial<Card>): Card {
+    return {
+      id: 'c', columnId: 'col', order: 'a0', title: '', description: '', dueDate: null,
+      assigneeIds: [], labelIds: [], checklist: [], commentCount: 0, archived: false, archivedAt: null,
+      ...fields,
+    }
+  }
+
+  test('条件がなければすべて表示し、絞り込み中とはみなさない', () => {
+    expect(isFilterActive(EMPTY_FILTER)).toBe(false)
+    expect(isFilterActive({ ...EMPTY_FILTER, keyword: '  ' })).toBe(false)
+    expect(matchesCardFilter(card({ title: 'なんでも' }), EMPTY_FILTER, TODAY)).toBe(true)
+  })
+
+  test('キーワードはタイトルと説明から探し、全角・半角や大文字・小文字の違いを無視する', () => {
+    const target = card({ title: 'ＡＰＩの設計', description: '認証まわりを決める' })
+    expect(matchesCardFilter(target, { ...EMPTY_FILTER, keyword: 'api' }, TODAY)).toBe(true)
+    expect(matchesCardFilter(target, { ...EMPTY_FILTER, keyword: '認証' }, TODAY)).toBe(true)
+    expect(matchesCardFilter(target, { ...EMPTY_FILTER, keyword: 'デザイン' }, TODAY)).toBe(false)
+  })
+
+  test('担当者は選んだ人のいずれかが担当していれば表示する。「担当者なし」も選べる', () => {
+    const filter = { ...EMPTY_FILTER, assigneeIds: ['alice', UNASSIGNED] }
+    expect(matchesCardFilter(card({ assigneeIds: ['alice', 'bob'] }), filter, TODAY)).toBe(true)
+    expect(matchesCardFilter(card({ assigneeIds: [] }), filter, TODAY)).toBe(true)
+    expect(matchesCardFilter(card({ assigneeIds: ['bob'] }), filter, TODAY)).toBe(false)
+  })
+
+  test('期限の条件', () => {
+    const due = (dueDate: string | null, condition: 'overdue' | 'today' | 'this_week' | 'none') =>
+      matchesCardFilter(card({ dueDate }), { ...EMPTY_FILTER, due: [condition] }, TODAY)
+    expect(due('2026-10-12', 'overdue')).toBe(true)
+    expect(due('2026-10-13', 'overdue')).toBe(false)
+    expect(due('2026-10-13', 'today')).toBe(true)
+    expect(due('2026-10-12', 'today')).toBe(true)
+    expect(due('2026-10-18', 'this_week')).toBe(true)
+    expect(due('2026-10-19', 'this_week')).toBe(false)
+    expect(due(null, 'none')).toBe(true)
+    expect(due(null, 'today')).toBe(false)
+  })
+
+  test('種類の違う条件は、すべて満たすカードだけを表示する', () => {
+    const filter = { ...EMPTY_FILTER, labelIds: ['urgent'], assigneeIds: ['alice'] }
+    expect(matchesCardFilter(card({ labelIds: ['urgent'], assigneeIds: ['alice'] }), filter, TODAY)).toBe(true)
+    expect(matchesCardFilter(card({ labelIds: ['urgent'], assigneeIds: ['bob'] }), filter, TODAY)).toBe(false)
+  })
+
+  test('今週の終わりは日曜日。日曜日当日はその日、月をまたぐ場合も正しく計算する', () => {
+    expect(endOfWeek('2026-10-13')).toBe('2026-10-18')
+    expect(endOfWeek('2026-10-18')).toBe('2026-10-18')
+    expect(endOfWeek('2026-10-19')).toBe('2026-10-25')
+    expect(endOfWeek('2026-12-29')).toBe('2027-01-03')
   })
 })

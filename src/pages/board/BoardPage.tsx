@@ -1,8 +1,13 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, Outlet, useParams } from 'react-router'
+import { useAuth } from '../../auth/context'
 import { Avatar } from '../../components/Avatar'
+import { todayString } from '../../lib/dates'
+import { EMPTY_FILTER, matchesCardFilter, type CardFilter } from '../../lib/filter'
+import { ArchivePanel } from './ArchivePanel'
 import { BoardCanvas } from './BoardCanvas'
 import type { BoardOutletContext } from './boardOutlet'
+import { FilterBar } from './FilterBar'
 import { useBoardData } from './useBoardData'
 
 // ボードを切り替えたら、購読も画面の状態もすべて作り直す
@@ -12,8 +17,18 @@ export function BoardRoute() {
 }
 
 function BoardPage({ boardId }: { boardId: string }) {
+  const { user } = useAuth()
   const { board, columns, cards, members, error } = useBoardData(boardId)
   const [saveError, setSaveError] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  // 絞り込みの条件は自分の画面だけに効き、保存しない（F-83）
+  const [filter, setFilter] = useState<CardFilter>(EMPTY_FILTER)
+
+  const today = todayString()
+  const cardFilter = useMemo(
+    () => (card: Parameters<typeof matchesCardFilter>[0]) => matchesCardFilter(card, filter, today),
+    [filter, today],
+  )
 
   if (error === 'not-found' || error === 'forbidden') {
     return (
@@ -31,6 +46,11 @@ function BoardPage({ boardId }: { boardId: string }) {
     return <p className="page-message">読み込み中…</p>
   }
 
+  const isOwner = members.find((member) => member.uid === user?.uid)?.role === 'owner'
+  const activeColumnIds = new Set(columns.filter((column) => !column.archived).map((column) => column.id))
+  const activeCards = cards.filter((card) => !card.archived && activeColumnIds.has(card.columnId))
+  const shownCount = activeCards.filter(cardFilter).length
+
   return (
     <div className="board-page">
       <header className="board-header">
@@ -40,7 +60,25 @@ function BoardPage({ boardId }: { boardId: string }) {
             <Avatar key={member.uid} name={member.displayName} photoURL={member.photoURL} />
           ))}
         </div>
-        <Link to="settings" className="button-secondary board-settings-link">ボード設定</Link>
+        <FilterBar
+          filter={filter}
+          onChange={setFilter}
+          members={members}
+          labels={board.labels}
+          shownCount={shownCount}
+          totalCount={activeCards.length}
+        />
+        <div className="board-header-actions">
+          <button
+            type="button"
+            className="button-secondary"
+            aria-expanded={archiveOpen}
+            onClick={() => setArchiveOpen(!archiveOpen)}
+          >
+            アーカイブ
+          </button>
+          <Link to="settings" className="button-secondary board-settings-link">ボード設定</Link>
+        </div>
       </header>
 
       {saveError && (
@@ -50,13 +88,27 @@ function BoardPage({ boardId }: { boardId: string }) {
         </div>
       )}
 
-      <BoardCanvas
-        board={board}
-        columns={columns}
-        cards={cards}
-        members={members}
-        onSaveError={() => setSaveError(true)}
-      />
+      <div className="board-body">
+        <BoardCanvas
+          board={board}
+          columns={columns}
+          cards={cards}
+          members={members}
+          cardFilter={cardFilter}
+          onSaveError={() => setSaveError(true)}
+        />
+        {archiveOpen && (
+          <ArchivePanel
+            boardId={board.id}
+            uid={user!.uid}
+            isOwner={isOwner}
+            columns={columns}
+            cards={cards}
+            onSaveError={() => setSaveError(true)}
+            onClose={() => setArchiveOpen(false)}
+          />
+        )}
+      </div>
 
       {/* カード詳細（S-04）はボードの上にモーダルで開く */}
       <Outlet context={{ board, columns, cards, members, onSaveError: () => setSaveError(true) } satisfies BoardOutletContext} />

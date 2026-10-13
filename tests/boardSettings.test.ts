@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { assertFails, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing'
 import { collection, collectionGroup, deleteDoc, doc, getDoc, getDocs, setDoc, Timestamp, type Firestore } from 'firebase/firestore'
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { addCard } from '../src/lib/board'
+import { purgeCard, purgeColumn, restoreCard, restoreColumn } from '../src/lib/archive'
+import { addCard, archiveColumn } from '../src/lib/board'
 import {
   createInvite,
   deleteBoard,
@@ -18,7 +19,7 @@ import {
   updateLabels,
 } from '../src/lib/boardSettings'
 import { createBoard, subscribeMyBoards } from '../src/lib/boards'
-import { addComment } from '../src/lib/card'
+import { addComment, archiveCard } from '../src/lib/card'
 import { orderAt } from '../src/lib/order'
 
 // ボード設定（S-06）と招待への参加（S-07）のデータ操作を、本番と同じ Security Rules の下で確かめる
@@ -59,6 +60,21 @@ beforeEach(async () => {
 afterAll(async () => {
   await env.cleanup()
 })
+
+// ボードの配下に残っているドキュメントの数
+async function countRemaining(boardId: string) {
+  return asAdmin(async (db) => {
+    const board = doc(db, 'boards', boardId)
+    const counts: Record<string, number> = { board: (await getDoc(board)).exists() ? 1 : 0 }
+    for (const name of ['members', 'invites', 'columns', 'cards']) {
+      counts[name] = (await getDocs(collection(board, name))).size
+    }
+    for (const name of ['comments', 'history']) {
+      counts[name] = (await getDocs(collectionGroup(db, name))).size
+    }
+    return counts
+  })
+}
 
 describe('招待リンク', () => {
   test('リンクを受け取った人は、参加前にボード名を確認でき、参加するとメンバーになる', async () => {
@@ -144,20 +160,6 @@ describe('メンバー', () => {
 })
 
 describe('ボードの削除', () => {
-  async function countRemaining(boardId: string) {
-    return asAdmin(async (db) => {
-      const board = doc(db, 'boards', boardId)
-      const counts: Record<string, number> = { board: (await getDoc(board)).exists() ? 1 : 0 }
-      for (const name of ['members', 'invites', 'columns', 'cards']) {
-        counts[name] = (await getDocs(collection(board, name))).size
-      }
-      for (const name of ['comments', 'history']) {
-        counts[name] = (await getDocs(collectionGroup(db, name))).size
-      }
-      return counts
-    })
-  }
-
   async function fillBoard(boardId: string) {
     const db = dbAs('alice')
     const columns = await asAdmin(async (admin) => (await getDocs(collection(admin, 'boards', boardId, 'columns'))).docs)
@@ -202,5 +204,59 @@ describe('ボードの削除', () => {
     expect(await countRemaining(boardId)).toEqual({
       board: 0, members: 0, invites: 0, columns: 0, cards: 0, comments: 0, history: 0,
     })
+  })
+})
+
+describe('アーカイブ一覧', () => {
+  async function setup() {
+    const { boardId } = await setupBoardWithBob()
+    const db = dbAs('alice')
+    const columns = await asAdmin(async (admin) => (await getDocs(collection(admin, 'boards', boardId, 'columns'))).docs)
+    await addCard(db, boardId, 'alice', columns[0].id, 'カード', orderAt([], 0))
+    const cardId = (await asAdmin(async (admin) => (await getDocs(collection(admin, 'boards', boardId, 'cards'))).docs))[0].id
+    await addComment(dbAs('bob'), boardId, 'bob', cardId, 'コメント')
+    return { boardId, columnId: columns[0].id, otherColumnId: columns[1].id, cardId }
+  }
+
+  const readCard = (boardId: string, cardId: string) =>
+    asAdmin(async (db) => (await getDoc(doc(db, 'boards', boardId, 'cards', cardId))).data())
+  const historyTypes = (boardId: string, cardId: string) =>
+    asAdmin(async (db) => (await getDocs(collection(db, 'boards', boardId, 'cards', cardId, 'history'))).docs.map((d) => d.data().type).sort())
+
+  test('メンバーはアーカイブしたカードを、別の列を選んで元に戻せる。変更履歴に記録される', async () => {
+    const { boardId, otherColumnId, cardId } = await setup()
+    await archiveCard(dbAs('bob'), boardId, 'bob', cardId)
+    await restoreCard(dbAs('bob'), boardId, 'bob', cardId, { columnId: otherColumnId, order: orderAt([], 0) })
+
+    expect(await readCard(boardId, cardId)).toMatchObject({ archived: false, archivedAt: null, columnId: otherColumnId })
+    expect(await historyTypes(boardId, cardId)).toEqual(['archived', 'created', 'restored'])
+  })
+
+  test('列を元に戻すと、アーカイブ状態が解除される', async () => {
+    const { boardId, columnId } = await setup()
+    await archiveColumn(dbAs('bob'), boardId, columnId)
+    await restoreColumn(dbAs('bob'), boardId, columnId)
+    const column = await asAdmin(async (db) => (await getDoc(doc(db, 'boards', boardId, 'columns', columnId))).data())
+    expect(column).toMatchObject({ archived: false, archivedAt: null })
+  })
+
+  test('アーカイブしたカードは、オーナーだけがコメント・変更履歴ごと完全に削除できる', async () => {
+    const { boardId, cardId } = await setup()
+    await archiveCard(dbAs('alice'), boardId, 'alice', cardId)
+    await assertFails(purgeCard(dbAs('bob'), boardId, cardId))
+    await purgeCard(dbAs('alice'), boardId, cardId)
+    expect(await countRemaining(boardId)).toMatchObject({ cards: 0, comments: 0, history: 0 })
+  })
+
+  test('アーカイブしていないカードは、オーナーでも完全に削除できない', async () => {
+    const { boardId, cardId } = await setup()
+    await assertFails(purgeCard(dbAs('alice'), boardId, cardId))
+  })
+
+  test('アーカイブした列は、中のカード（カード自体はアーカイブしていないもの）ごと完全に削除できる', async () => {
+    const { boardId, columnId } = await setup()
+    await archiveColumn(dbAs('alice'), boardId, columnId)
+    await purgeColumn(dbAs('alice'), boardId, columnId)
+    expect(await countRemaining(boardId)).toMatchObject({ columns: 2, cards: 0, comments: 0, history: 0 })
   })
 })

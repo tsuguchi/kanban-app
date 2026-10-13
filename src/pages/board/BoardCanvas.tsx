@@ -41,6 +41,8 @@ interface BoardCanvasProps {
   columns: Column[]
   cards: Card[]
   members: BoardMember[]
+  // 絞り込み（F-80〜F-83）。false を返したカードは表示しない
+  cardFilter: (card: Card) => boolean
   onSaveError: () => void
 }
 
@@ -66,7 +68,7 @@ const screenReaderInstructions = {
   draggable: 'スペースキーで持ち上げ、矢印キーで移動し、もう一度スペースキーで置きます。Esc キーで取り消します。',
 }
 
-export function BoardCanvas({ board, columns, cards, members, onSaveError }: BoardCanvasProps) {
+export function BoardCanvas({ board, columns, cards, members, cardFilter, onSaveError }: BoardCanvasProps) {
   const { user } = useAuth()
   const uid = user!.uid
   const [pendingCards, setPendingCards] = useState<Pending<{ columnId: string, order: string }>>({})
@@ -99,15 +101,22 @@ export function BoardCanvas({ board, columns, cards, members, onSaveError }: Boa
     [cards, pendingCards],
   )
 
-  // アーカイブ済みのカードと、アーカイブ済みの列のカードは表示しない（F-70、F-71）
-  const savedLayout = useMemo(() => {
+  // アーカイブ済みのカードと、アーカイブ済みの列のカードは表示しない（F-70、F-71）。
+  // 絞り込みで隠したカードも含めた並びは、カードを末尾に追加するときの位置の計算に使う
+  const unfilteredLayout = useMemo(() => {
     const layout: Layout = Object.fromEntries(visibleColumns.map((column) => [column.id, []]))
-    const visibleCards = [...cardsById.values()]
+    const activeCards = [...cardsById.values()]
       .filter((card) => !card.archived && card.columnId in layout)
       .sort(compareByOrder)
-    for (const card of visibleCards) layout[card.columnId].push(card.id)
+    for (const card of activeCards) layout[card.columnId].push(card.id)
     return layout
   }, [visibleColumns, cardsById])
+
+  const savedLayout = useMemo(
+    () => Object.fromEntries(Object.entries(unfilteredLayout).map(([columnId, ids]) =>
+      [columnId, ids.filter((id) => cardFilter(cardsById.get(id)!))])) as Layout,
+    [unfilteredLayout, cardsById, cardFilter],
+  )
 
   const layout = draftLayout ?? savedLayout
   const columnName = (columnId: string) => columns.find((column) => column.id === columnId)?.name ?? ''
@@ -265,7 +274,7 @@ export function BoardCanvas({ board, columns, cards, members, onSaveError }: Boa
               labels={board.labels}
               members={members}
               onAddCard={(title) => {
-                const columnCards = savedLayout[column.id].map((id) => cardsById.get(id)!)
+                const columnCards = unfilteredLayout[column.id].map((id) => cardsById.get(id)!)
                 save(addCard(db, board.id, uid, column.id, title, orderAt(columnCards, columnCards.length)))
               }}
               onRename={(name) => save(renameColumn(db, board.id, column.id, name))}

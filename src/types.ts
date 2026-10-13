@@ -43,6 +43,7 @@ export interface Column {
   name: string
   order: string
   archived: boolean
+  archivedAt: Date | null
 }
 
 export interface ChecklistItem {
@@ -84,4 +85,5 @@ export interface Card {
   checklist: ChecklistItem[]
   commentCount: number
   archived: boolean
+  archivedAt: Date | null
 }
