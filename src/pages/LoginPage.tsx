@@ -63,9 +63,17 @@ export function LoginPage() {
         case 'auth/popup-blocked':
           setError('ポップアップがブロックされました。ブラウザの設定でこのサイトのポップアップを許可してください。')
           break
+        // 以下の 2 つは Firebase の設定の問題で、利用者には直せない。管理者に伝えやすいよう原因を示す
+        case 'auth/operation-not-allowed':
+          setError(`${provider.label} でのログインが有効になっていません。管理者に連絡してください（Firebase の Authentication でログイン方法を有効にする必要があります）。`)
+          break
+        case 'auth/unauthorized-domain':
+          setError('このサイトからのログインが許可されていません。管理者に連絡してください（Firebase の Authentication の承認済みドメインに追加する必要があります）。')
+          break
         default:
           console.error(caught)
-          setError('ログインに失敗しました。時間をおいてもう一度お試しください。')
+          // 原因を調べられるよう、エラーコードも表示する
+          setError(`ログインに失敗しました。時間をおいてもう一度お試しください。（${caught.code}）`)
       }
     } finally {
       setBusy(false)
