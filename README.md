@@ -2,6 +2,7 @@
 
 小規模チーム向けのカンバン型タスク管理アプリ。
 
+- 本番：https://kanban-app.tsuguchi.workers.dev
 - 要件：[REQUIREMENTS.md](REQUIREMENTS.md)
 - データ構造：[DATA_MODEL.md](DATA_MODEL.md)
 
@@ -49,7 +50,7 @@ npm test
 | `npm run emulators` | Firebase Emulator（Auth、Firestore）を起動する |
 | `npm test` | テストを実行する（Emulator の起動が必要） |
 | `npm run deploy:rules` | Firestore の Security Rules とインデックスを本番に反映する |
-| `npm run deploy` | ビルドして Cloudflare Workers に手動でデプロイする（通常は下記の自動デプロイを使う） |
+| `npm run deploy` | ビルドして Cloudflare Workers に手動でデプロイする（通常は下記の自動デプロイを使う）。本番の Firebase の設定は `.env.production.local` から読み込む |
 
 ## 初回セットアップ
 
