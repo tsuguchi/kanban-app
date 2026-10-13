@@ -29,13 +29,15 @@ npm run dev
 
 Emulator は Firebase へのログインが不要な `demo-kanban` プロジェクトとして動くので、本番のデータには触れない。
 
-Security Rules のテストは、Emulator を起動した状態で実行する。
+テストは、Emulator を起動した状態で実行する。Security Rules のテスト（`tests/firestore.rules.test.ts`）と、`src/lib` のデータ操作が本番と同じルールの下で動くかのテスト（`tests/lib.test.ts`）がある。
 
 ```sh
-npm run test:rules
+npm test
 ```
 
-`npm run test:rules:ci` は Emulator の起動から停止までを自動で行う。ただし Windows では、終了後も Firestore Emulator（java.exe）が残ってポート 8080 を使い続けることがあるため、CI（Linux）向けとする。
+ログイン画面を試すときは、Emulator の偽のログイン画面が開く。「Add new account」で好きな名前とメールアドレスのユーザーを作ってログインできる。
+
+`npm run test:ci` は Emulator の起動から停止までを自動で行う。ただし Windows では、終了後も Firestore Emulator（java.exe）が残ってポート 8080 を使い続けることがあるため、CI（Linux）向けとする。
 
 | コマンド | 内容 |
 |---|---|
@@ -43,7 +45,7 @@ npm run test:rules
 | `npm run build` | 型チェックと本番用ビルド（`dist/`） |
 | `npm run lint` | oxlint で静的解析する |
 | `npm run emulators` | Firebase Emulator（Auth、Firestore）を起動する |
-| `npm run test:rules` | Security Rules のテストを実行する（Emulator の起動が必要） |
+| `npm test` | テストを実行する（Emulator の起動が必要） |
 | `npm run deploy:rules` | Firestore の Security Rules とインデックスを本番に反映する |
 | `npm run deploy` | ビルドして Cloudflare Workers に手動でデプロイする（通常は下記の自動デプロイを使う） |
 
