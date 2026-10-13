@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Outlet, useParams } from 'react-router'
 import { Avatar } from '../../components/Avatar'
 import { BoardCanvas } from './BoardCanvas'
+import type { BoardOutletContext } from './boardOutlet'
 import { useBoardData } from './useBoardData'
 
 // ボードを切り替えたら、購読も画面の状態もすべて作り直す
@@ -58,7 +59,7 @@ function BoardPage({ boardId }: { boardId: string }) {
       />
 
       {/* カード詳細（S-04）はボードの上にモーダルで開く */}
-      <Outlet />
+      <Outlet context={{ board, columns, cards, members, onSaveError: () => setSaveError(true) } satisfies BoardOutletContext} />
     </div>
   )
 }

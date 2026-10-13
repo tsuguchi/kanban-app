@@ -44,6 +44,27 @@ export interface ChecklistItem {
   done: boolean
 }
 
+export interface CardComment {
+  id: string
+  authorId: string
+  body: string
+  createdAt: Date
+  edited: boolean
+}
+
+export type HistoryType =
+  | 'created' | 'archived' | 'restored' | 'moved'
+  | 'title_changed' | 'due_changed' | 'assignees_changed' | 'labels_changed'
+
+export interface HistoryEntry {
+  id: string
+  actorId: string
+  type: HistoryType
+  from: Record<string, unknown> | null
+  to: Record<string, unknown> | null
+  createdAt: Date
+}
+
 export interface Card {
   id: string
   columnId: string

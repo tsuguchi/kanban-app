@@ -14,6 +14,7 @@ import {
   subscribeColumns,
 } from '../src/lib/board'
 import { createBoard, subscribeMyBoards } from '../src/lib/boards'
+import { addComment, archiveCard, deleteComment, editComment, updateCard } from '../src/lib/card'
 import { compareByOrder, orderAt } from '../src/lib/order'
 import { ensureUserProfile, updateDisplayName } from '../src/lib/users'
 import type { BoardSummary, Card, Column } from '../src/types'
@@ -95,6 +96,23 @@ describe('subscribeMyBoards', () => {
       ['A のボード', 'owner'],
       ['B のボード', 'owner'],
     ])
+  })
+
+  test('一覧を購読したままボードを作っても、権限エラーにならずに一覧に出る', async () => {
+    const db = dbAs('alice')
+    const errors: Error[] = []
+    const shown = new Promise<BoardSummary[]>((resolve) => {
+      const unsubscribe = subscribeMyBoards(db, 'alice', (boards) => {
+        if (boards.length === 1) {
+          unsubscribe()
+          resolve(boards)
+        }
+      }, (error) => errors.push(error))
+    })
+    await createBoard(db, 'alice', '作ったばかりのボード')
+    const boards = await shown
+    expect(boards.map((board) => board.name)).toEqual(['作ったばかりのボード'])
+    expect(errors).toEqual([])
   })
 
   test('削除が途中で止まったボード（メンバー情報だけが残っている）は表示しない', async () => {
@@ -218,5 +236,60 @@ describe('ボード画面のカードの操作', () => {
       from: { columnName: '未着手' },
       to: { columnName: '進行中' },
     })
+  })
+})
+
+describe('カード詳細の操作', () => {
+  async function setupCard() {
+    const db = dbAs('alice')
+    const boardId = await createBoard(db, 'alice', 'ボード')
+    const { columns } = await readBoard(db, boardId)
+    await addCard(db, boardId, 'alice', columns[0].id, 'タスク', orderAt([], 0))
+    const { cards } = await readBoard(db, boardId)
+    return { db, boardId, cardId: cards[0].id }
+  }
+
+  test('項目を更新すると、指定した変更履歴が同じバッチで記録される', async () => {
+    const { db, boardId, cardId } = await setupCard()
+    await updateCard(db, boardId, 'alice', cardId, { title: '新しいタイトル' }, {
+      type: 'title_changed', from: { title: 'タスク' }, to: { title: '新しいタイトル' },
+    })
+    await updateCard(db, boardId, 'alice', cardId, {
+      description: '説明',
+      dueDate: '2026-10-31',
+      assigneeIds: ['alice'],
+      checklist: [{ id: 'i1', text: '項目', done: true }],
+    })
+
+    const { cards } = await readBoard(db, boardId)
+    expect(cards[0]).toMatchObject({
+      title: '新しいタイトル', description: '説明', dueDate: '2026-10-31', assigneeIds: ['alice'],
+      checklist: [{ id: 'i1', text: '項目', done: true }],
+    })
+    const types = (await readHistory(boardId, cardId)).map((h) => h.type).sort()
+    expect(types).toEqual(['created', 'title_changed'])
+  })
+
+  test('コメントの投稿・編集・削除で、カードのコメント数が増減する', async () => {
+    const { db, boardId, cardId } = await setupCard()
+    await addComment(db, boardId, 'alice', cardId, '1 件目')
+    await addComment(db, boardId, 'alice', cardId, '2 件目')
+    let { cards } = await readBoard(db, boardId)
+    expect(cards[0].commentCount).toBe(2)
+
+    const comments = await readAsAdmin(async (admin) =>
+      (await getDocs(collection(admin, 'boards', boardId, 'cards', cardId, 'comments'))).docs)
+    await editComment(db, boardId, cardId, comments[0].id, '編集しました')
+    await deleteComment(db, boardId, 'alice', cardId, comments[1].id)
+    ;({ cards } = await readBoard(db, boardId))
+    expect(cards[0].commentCount).toBe(1)
+  })
+
+  test('カードをアーカイブすると、変更履歴に記録される', async () => {
+    const { db, boardId, cardId } = await setupCard()
+    await archiveCard(db, boardId, 'alice', cardId)
+    const { cards } = await readBoard(db, boardId)
+    expect(cards[0].archived).toBe(true)
+    expect((await readHistory(boardId, cardId)).map((h) => h.type).sort()).toEqual(['archived', 'created'])
   })
 })

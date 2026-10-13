@@ -11,6 +11,13 @@ export function isOverdue(dueDate: string | null, today: string = todayString())
   return dueDate !== null && dueDate < today
 }
 
+// コメントや変更履歴の日時。"10/13 14:05"、今年でなければ "2025/10/13 14:05"
+export function formatDateTime(date: Date, now: Date = new Date()): string {
+  const time = `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`
+  const day = `${date.getMonth() + 1}/${date.getDate()}`
+  return date.getFullYear() === now.getFullYear() ? `${day} ${time}` : `${date.getFullYear()}/${day} ${time}`
+}
+
 // "2026-10-31" → "10/31"。今年でなければ年も付ける
 export function formatDueDate(dueDate: string, today: string = todayString()): string {
   const [year, month, day] = dueDate.split('-')

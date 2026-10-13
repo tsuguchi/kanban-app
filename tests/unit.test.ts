@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { formatDueDate, isOverdue, todayString } from '../src/lib/dates'
+import { describeHistory } from '../src/lib/card'
+import { formatDateTime, formatDueDate, isOverdue, todayString } from '../src/lib/dates'
 import { compareByOrder, orderAt } from '../src/lib/order'
 
 // Emulator を使わない単体テスト
@@ -64,5 +65,25 @@ describe('期限', () => {
   test('今年の期限は月/日、それ以外は年も表示する', () => {
     expect(formatDueDate('2026-10-31', '2026-10-13')).toBe('10/31')
     expect(formatDueDate('2027-01-05', '2026-10-13')).toBe('2027/1/5')
+  })
+})
+
+describe('formatDateTime', () => {
+  test('今年なら月/日 時:分、それ以外は年も表示する', () => {
+    const now = new Date(2026, 9, 13)
+    expect(formatDateTime(new Date(2026, 9, 13, 9, 5), now)).toBe('10/13 9:05')
+    expect(formatDateTime(new Date(2025, 0, 2, 14, 30), now)).toBe('2025/1/2 14:30')
+  })
+})
+
+describe('describeHistory', () => {
+  test('操作の種類ごとに文章にする', () => {
+    expect(describeHistory({ type: 'moved', from: { columnName: '未着手' }, to: { columnName: '進行中' } }))
+      .toBe('「未着手」から「進行中」に移動しました')
+    expect(describeHistory({ type: 'due_changed', from: { dueDate: null }, to: { dueDate: '2026-10-31' } }))
+      .toBe('期限をなしから「2026-10-31」に変更しました')
+    expect(describeHistory({ type: 'assignees_changed', from: { names: [] }, to: { names: ['Alice', 'Bob'] } }))
+      .toBe('担当者をなしから「Alice、Bob」に変更しました')
+    expect(describeHistory({ type: 'created', from: null, to: null })).toBe('カードを作成しました')
   })
 })

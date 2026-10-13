@@ -22,7 +22,11 @@ export function InlineTextForm(props: InlineTextFormProps) {
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    if (event.key === 'Escape') props.onCancel()
+    if (event.key === 'Escape') {
+      // モーダルの中で使ったときに、入力の取り消しだけでなくモーダルまで閉じないようにする
+      event.preventDefault()
+      props.onCancel()
+    }
     // 日本語入力の変換確定の Enter では送信しない
     if (props.multiline && event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault()
