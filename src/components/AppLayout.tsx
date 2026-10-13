@@ -1,11 +1,11 @@
-import { signOut } from 'firebase/auth'
 import { Link, Outlet } from 'react-router'
 import { useAuth } from '../auth/context'
-import { auth } from '../lib/firebase'
+import { useLogout } from '../auth/useLogout'
 
 // ログイン後の画面に共通するヘッダー
 export function AppLayout() {
   const { user, profile } = useAuth()
+  const logout = useLogout()
   const displayName = profile?.displayName ?? user?.displayName ?? ''
 
   return (
@@ -17,7 +17,7 @@ export function AppLayout() {
             {profile?.photoURL && <img src={profile.photoURL} alt="" className="avatar" />}
             {displayName}
           </Link>
-          <button type="button" className="button-secondary" onClick={() => signOut(auth)}>
+          <button type="button" className="button-secondary" onClick={logout}>
             ログアウト
           </button>
         </nav>

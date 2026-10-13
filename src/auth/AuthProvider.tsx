@@ -4,6 +4,7 @@ import { auth, db } from '../lib/firebase'
 import { ensureUserProfile, subscribeUserProfile } from '../lib/users'
 import type { UserProfile } from '../types'
 import { AuthContext } from './context'
+import { clearLoggedOutByUser } from './useLogout'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
@@ -14,6 +15,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
+      if (nextUser) clearLoggedOutByUser()
       setUser(nextUser)
       setLoading(false)
     })
